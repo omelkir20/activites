@@ -105,7 +105,7 @@ pipeline {
             '''
           }
         }
-       stage('OWASP Dependency-Check') {
+        stage('OWASP Dependency-Check') {
     steps {
         sh '''
             mkdir -p "$HOME/.dependency-check-data"
@@ -115,6 +115,7 @@ pipeline {
                 -v "$PWD/reports:/report" \
                 -v "$HOME/.dependency-check-data:/usr/share/dependency-check/data" \
                 owasp/dependency-check:latest \
+                --noupdate \
                 --scan /src/api/package-lock.json \
                 --scan /src/portfolio-next/package-lock.json \
                 --project devsecops-portfolio \
