@@ -18,8 +18,7 @@ pipeline {
   }
 
   parameters {
-    password(name: 'NVD_API_KEY', defaultValue: '',
-             description: 'Clé API NVD (optionnelle mais recommandée : accélère OWASP Dependency-Check)')
+ 
   }
 
   environment {
@@ -109,21 +108,26 @@ pipeline {
             '''
           }
         }
-        stage('OWASP Dependency-Check') {
-          steps {
-            sh '''
-              mkdir -p "$HOME/.dependency-check-data"
-              NVD=""; [ -n "$NVD_API_KEY" ] && NVD="--nvdApiKey $NVD_API_KEY"
-              docker run --rm --user "$UID_GID" \
-                -v "$PWD:/src" -v "$PWD/reports:/report" \
+       stage('OWASP Dependency-Check') {
+    steps {
+        sh '''
+            mkdir -p "$HOME/.dependency-check-data"
+
+            docker run --rm --user "$UID_GID" \
+                -v "$PWD:/src" \
+                -v "$PWD/reports:/report" \
                 -v "$HOME/.dependency-check-data:/usr/share/dependency-check/data" \
                 owasp/dependency-check:latest \
-                --scan /src/api/package-lock.json --scan /src/portfolio-next/package-lock.json \
-                --project devsecops-portfolio --format HTML --format JSON --out /report \
-                --failOnCVSS 9 $NVD
-            '''
-          }
-        }
+                --scan /src/api/package-lock.json \
+                --scan /src/portfolio-next/package-lock.json \
+                --project devsecops-portfolio \
+                --format HTML \
+                --format JSON \
+                --out /report \
+                --failOnCVSS 9
+        '''
+    }
+}
       }
     }
 
