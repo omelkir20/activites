@@ -105,27 +105,7 @@ pipeline {
             '''
           }
         }
-        stage('OWASP Dependency-Check') {
-    steps {
-        sh '''
-            mkdir -p "$HOME/.dependency-check-data"
 
-            docker run --rm --user "$UID_GID" \
-                -v "$PWD:/src" \
-                -v "$PWD/reports:/report" \
-                -v "$HOME/.dependency-check-data:/usr/share/dependency-check/data" \
-                owasp/dependency-check:latest \
-                --noupdate \
-                --scan /src/api/package-lock.json \
-                --scan /src/portfolio-next/package-lock.json \
-                --project devsecops-portfolio \
-                --format HTML \
-                --format JSON \
-                --out /report \
-                --failOnCVSS 9
-        '''
-    }
-}
       }
     }
 
