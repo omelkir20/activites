@@ -1,0 +1,12 @@
+# Surcharge utilisée par Jenkins : aucun port publié sur l'hôte (évite les conflits de ports)
+# et limites de débit relevées pour les tests d'intégration.
+services:
+  db:
+    ports: !reset []
+  api:
+    ports: !reset []
+    environment:
+      CONTACT_RATE_LIMIT_MAX: 1000
+      RATE_LIMIT_MAX: 1000
+  frontend:
+    ports: !reset []

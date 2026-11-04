@@ -1,0 +1,104 @@
+---
+# Déploie le DevSecOps Portfolio (frontend Next.js + API Express + PostgreSQL) avec Docker Compose.
+# 1) installe Docker (install_docker.yml)  2) copie le projet  3) génère .env  4) docker compose up
+#
+# Usage :
+#   ansible-playbook -i inventory.ini deploy_portfolio.yml
+#   (Vagrant lance ce même playbook automatiquement après `vagrant up`)
+
+- import_playbook: install_docker.yml
+
+- name: Déployer le DevSecOps Portfolio avec Docker Compose
+  hosts: all
+  become: true
+  vars:
+    app_dir: /opt/devsecops-portfolio
+    archive_path: /tmp/devsecops-portfolio.tgz
+    postgres_user: portfolio
+    postgres_db: portfolio
+    image_tag: latest
+    # Mot de passe généré une seule fois sur la machine de contrôle et conservé dans .secrets/ (ignoré par Git)
+    postgres_password: "{{ lookup('ansible.builtin.password', playbook_dir ~ '/.secrets/postgres_password length=24 chars=ascii_letters,digits') }}"
+
+  tasks:
+    - name: Archiver le projet sur la machine de contrôle (sans node_modules, .git, secrets...)
+      ansible.builtin.command:
+        argv:
+          - tar
+          - czf
+          - "{{ archive_path }}"
+          - -C
+          - "{{ playbook_dir }}"
+          - --exclude=node_modules
+          - --exclude=.next
+          - --exclude=.git
+          - --exclude=.vagrant
+          - --exclude=.secrets
+          - --exclude=./.env
+          - --exclude=reports
+          - --exclude=*.zip
+          - .
+      delegate_to: localhost
+      become: false
+      run_once: true
+      changed_when: true
+
+    - name: Créer le répertoire de l'application
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copier le projet sur la VM
+      ansible.builtin.unarchive:
+        src: "{{ archive_path }}"
+        dest: "{{ app_dir }}"
+
+    - name: Générer le fichier .env (secrets)
+      ansible.builtin.template:
+        src: templates/env.j2
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+      no_log: true
+
+    - name: Construire les images et démarrer la stack (docker compose up -d --build)
+      ansible.builtin.command:
+        cmd: docker compose up -d --build --remove-orphans
+        chdir: "{{ app_dir }}"
+      register: compose_up
+      changed_when: "'Started' in compose_up.stderr or 'Created' in compose_up.stderr or 'Recreated' in compose_up.stderr or 'Built' in compose_up.stderr"
+
+    - name: Attendre que le Portfolio écoute sur le port 3000
+      ansible.builtin.wait_for:
+        port: 3000
+        host: 127.0.0.1
+        timeout: 180
+
+    - name: Vérifier que l'API répond (/api/health)
+      ansible.builtin.uri:
+        url: http://127.0.0.1:4000/api/health
+        status_code: 200
+      register: api_health
+      retries: 15
+      delay: 4
+      until: api_health.status == 200
+
+    - name: Vérifier que le Portfolio répond (HTTP 200)
+      ansible.builtin.uri:
+        url: http://127.0.0.1:3000
+        status_code: 200
+      register: web_health
+      retries: 15
+      delay: 4
+      until: web_health.status == 200
+
+    - name: Afficher l'état des conteneurs
+      ansible.builtin.command:
+        cmd: docker compose ps
+        chdir: "{{ app_dir }}"
+      register: compose_ps
+      changed_when: false
+
+    - name: Résultat du déploiement
+      ansible.builtin.debug:
+        msg: "{{ compose_ps.stdout_lines }}"
