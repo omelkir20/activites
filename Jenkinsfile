@@ -17,9 +17,6 @@ pipeline {
     timeout(time: 60, unit: 'MINUTES')
   }
 
-  parameters {
- 
-  }
 
   environment {
     NODE_IMAGE      = 'node:22-bookworm-slim'
