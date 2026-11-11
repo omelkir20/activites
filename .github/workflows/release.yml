@@ -111,7 +111,7 @@ jobs:
           artifact-name: sbom-${{ matrix.name }}.spdx.json
           upload-release-assets: false
       - name: Attestation de provenance (build)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.meta.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
