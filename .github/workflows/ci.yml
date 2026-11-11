@@ -1,0 +1,187 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+jobs:
+  test-frontend:
+    name: Tests frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portfolio-next
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: portfolio-next/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+  test-api:
+    name: Tests API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: npm test
+  secrets:
+    name: Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Gitleaks (historique git + fichiers)
+        run: |
+          mkdir -p reports
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source /repo --config /repo/.gitleaks.toml --redact --verbose \
+            --report-format json --report-path /repo/reports/gitleaks.json --exit-code 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: reports/
+          if-no-files-found: ignore
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF vers l'onglet Security > Code scanning
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Semgrep - rapport complet (non bloquant, sert a la comparaison avec CodeQL)
+        run: |
+          mkdir -p reports
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src semgrep/semgrep:latest \
+            semgrep scan --config p/javascript --config p/nodejs --config p/typescript --config p/owasp-top-ten \
+            --metrics=off --sarif-output=reports/semgrep.sarif \
+            --exclude node_modules --exclude .next --exclude tests \
+            portfolio-next/app api/src api/server.js
+      - name: Semgrep - controle bloquant (severite ERROR)
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src semgrep/semgrep:latest \
+            semgrep scan --config p/javascript --config p/nodejs --config p/typescript --config p/owasp-top-ten \
+            --severity ERROR --error --metrics=off --json-output=reports/semgrep.json \
+            --exclude node_modules --exclude .next --exclude tests \
+            portfolio-next/app api/src api/server.js
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('reports/semgrep.sarif') != ''
+        with:
+          sarif_file: reports/semgrep.sarif
+          category: semgrep
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: reports/
+          if-no-files-found: ignore
+  dependencies:
+    name: Dependances
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit (echec si CRITICAL)
+        run: |
+          rc=0
+          for d in api portfolio-next; do
+            echo "=== npm audit : $d"
+            (cd "$d" && npm audit --audit-level=high || true)
+            (cd "$d" && npm audit --audit-level=critical) || rc=1
+          done
+          exit $rc
+      - name: Dependency Review (PR uniquement)
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+  images:
+    name: Image + Trivy (${{ matrix.name }})
+    needs: [secrets, test-frontend, test-api, sast, dependencies]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: ./api
+            image: devsecops-api
+          - name: frontend
+            context: ./portfolio-next
+            image: devsecops-portfolio
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: false
+          load: true
+          tags: ${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - name: Trivy - rapport SARIF (HIGH + CRITICAL, non bloquant)
+        run: |
+          mkdir -p reports "$HOME/.cache/trivy"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 \
+            --format sarif --output /reports/trivy-${{ matrix.name }}.sarif \
+            ${{ matrix.image }}:${{ github.sha }}
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles(format('reports/trivy-{0}.sarif', matrix.name)) != ''
+        with:
+          sarif_file: reports/trivy-${{ matrix.name }}.sarif
+          category: trivy-${{ matrix.name }}
+      - name: Trivy - controle bloquant (echec si CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/" \
+            aquasec/trivy:latest image --severity CRITICAL --ignore-unfixed --exit-code 1 \
+            ${{ matrix.image }}:${{ github.sha }}
+      - name: SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ matrix.image }}:${{ github.sha }}
+          format: spdx-json
+          output-file: reports/sbom-${{ matrix.name }}.spdx.json
+          artifact-name: sbom-${{ matrix.name }}-ci.spdx.json
+
