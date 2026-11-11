@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Semantic release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --yes -p semantic-release@24 semantic-release
+      - name: Tag cree sur ce commit (vide si pas de release)
+        id: tag
+        run: echo "tag=$(git tag --points-at HEAD | grep -E '^v[0-9]' | head -n1 || true)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish (${{ matrix.name }})
+    needs: release
+    if: needs.release.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # attacher le SBOM a la release
+      packages: write        # push GHCR
+      id-token: write        # signature Cosign keyless + attestations
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: ./api
+            image: devsecops-api
+          - name: frontend
+            context: ./portfolio-next
+            image: devsecops-portfolio
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      - name: Nom de l'image
+        id: meta
+        run: |
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "image=ghcr.io/${OWNER}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + push multi-arch (amd64, arm64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+      - name: Signer l'image (Cosign keyless)
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+      - name: SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.name }}.spdx.json
+          artifact-name: sbom-${{ matrix.name }}.spdx.json
+          upload-release-assets: false
+      - name: Attestation de provenance (build)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Attestation SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom-${{ matrix.name }}.spdx.json
+          push-to-registry: true
+      - name: Attacher le SBOM a la release GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" "sbom-${{ matrix.name }}.spdx.json" --clobber
+
+  harbor:
+    name: Harbor (copie + signature)
+    needs: [release, publish]
+    if: needs.release.outputs.tag != ''
+    runs-on: [self-hosted, harbor]     # runner installe sur la VM (Harbor n'est pas joignable depuis Internet)
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    env:
+      HARBOR: 192.168.148.140:8085
+      HARBOR_PROJECT: devsecops
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - name: Copier GHCR -> Harbor puis signer
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "$HARBOR_PASSWORD" | docker login "$HARBOR" -u "$HARBOR_USERNAME" --password-stdin
+          for img in devsecops-api devsecops-portfolio; do
+            SRC="ghcr.io/${OWNER}/${img}"
+            DST="${HARBOR}/${HARBOR_PROJECT}/${img}"
+            for t in "$VERSION" latest; do
+              skopeo copy --all --preserve-digests \
+                --src-creds "${GH_ACTOR}:${GH_TOKEN}" \
+                --dest-tls-verify=false --dest-creds "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                "docker://${SRC}:${VERSION}" "docker://${DST}:${t}"
+            done
+            DIGEST="$(skopeo inspect --tls-verify=false --creds "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+              --format '{{.Digest}}' "docker://${DST}:${VERSION}")"
+            echo ">>> Signature de ${DST}@${DIGEST}"
+            cosign sign --yes --allow-insecure-registry "${DST}@${DIGEST}"
+          done
+      - name: Logout
+        if: always()
+        run: docker logout "$HARBOR" || true
+

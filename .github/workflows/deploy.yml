@@ -1,0 +1,45 @@
+name: Deploy (verification de signature)
+on:
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: "Registre"
+        type: choice
+        options: [ghcr, harbor]
+        default: ghcr
+      tag:
+        description: "Tag a deployer (ex: 1.0.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-deploy:
+    name: Verifier la signature puis deployer
+    runs-on: [self-hosted, harbor]
+    env:
+      REGISTRY_CHOICE: ${{ inputs.registry }}
+      IMAGE_TAG: ${{ inputs.tag }}
+      HARBOR: 192.168.148.140:8085
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verifier les signatures (echec = deploiement bloque)
+        run: |
+          set -euo pipefail
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          if [ "$REGISTRY_CHOICE" = "harbor" ]; then
+            PREFIX="${HARBOR}/devsecops"; export COSIGN_INSECURE_REGISTRY=true
+          else
+            PREFIX="ghcr.io/${OWNER}"
+          fi
+          for img in devsecops-api devsecops-portfolio; do
+            ./scripts/verify-image.sh "${PREFIX}/${img}:${IMAGE_TAG}"
+          done
+      - name: Deploiement (signatures valides)
+        run: |
+          echo "Signatures OK - on peut deployer ${IMAGE_TAG}"
+          # Optionnel : docker compose pull && docker compose up -d --no-build
+
