@@ -1,5 +1,5 @@
-# DevSecOps Portfolio — Activité 4
-
+# DevSecOps Portfolio — Activité 4 + 5
+## Activité 4
 ## 11. Infrastructure automatisée (Vagrant + Ansible)
 
 ### 43 — Playbook de déploiement
@@ -45,7 +45,8 @@
 ![](cap-Act4/cap41.PNG)
 ![](cap-Act4/cap31.PNG)
 ![](cap-Act4/cap32.PNG)
-
+## Activité 5
+### 70- Créez un workflow GitHub Actions qui exécute automatiquement les tests frontend et API lors d'un push et d'une Pull Request.
 
 
 
