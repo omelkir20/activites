@@ -1,51 +1,27 @@
 name: CI
+
+# 70 : tests frontend + API sur push ET pull request
+# 71 : secrets (Gitleaks) + SAST (Semgrep) + dependances (npm audit + dependency-review)
+# 72 : build des 2 images Docker   |   73 : scan Trivy des 2 images
 on:
   push:
     branches: ["**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+# 76 : permissions minimales par defaut (chaque job ajoute seulement ce dont il a besoin)
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
 env:
   NODE_VERSION: "22"
+
 jobs:
-  test-frontend:
-    name: Tests frontend
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: portfolio-next
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: portfolio-next/package-lock.json
-      - run: npm ci --no-audit --no-fund
-      - run: npm test
-  test-api:
-    name: Tests API
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: api
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: api/package-lock.json
-      - run: npm ci --no-audit --no-fund
-      - run: npx prisma generate
-      - run: npm test
   secrets:
     name: Secrets (Gitleaks)
     runs-on: ubuntu-latest
@@ -66,6 +42,44 @@ jobs:
           name: gitleaks-report
           path: reports/
           if-no-files-found: ignore
+
+  test-frontend:
+    name: Tests frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portfolio-next
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: portfolio-next/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+
+  test-api:
+    name: Tests API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: npm test
+
   sast:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
@@ -102,6 +116,7 @@ jobs:
           name: semgrep-report
           path: reports/
           if-no-files-found: ignore
+
   dependencies:
     name: Dependances
     runs-on: ubuntu-latest
@@ -126,6 +141,7 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+
   images:
     name: Image + Trivy (${{ matrix.name }})
     needs: [secrets, test-frontend, test-api, sast, dependencies]
