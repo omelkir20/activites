@@ -23,7 +23,7 @@ jobs:
       IMAGE_TAG: ${{ inputs.tag }}
       HARBOR: 192.168.148.140:8085
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Verifier les signatures (echec = deploiement bloque)
