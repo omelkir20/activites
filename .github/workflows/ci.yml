@@ -324,7 +324,29 @@ jobs:
         run: npm run test:integration
 
   # ==========================================
-  # 7. DOCKER BUILD + TRIVY + SBOM
+  # 7. IaC SCAN - CHECKOV + TRIVY
+  # ==========================================
+  iac-scan:
+    name: IaC (Checkov + Trivy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Checkov
+        run: |
+          docker run --rm -v "$PWD:/src" bridgecrew/checkov:latest \\
+            -d /src/infra --framework terraform --compact --quiet
+
+      - name: Trivy IaC
+        run: |
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest \\
+            config --severity HIGH,CRITICAL --exit-code 1 /src/infra
+
+  # ==========================================
+  # 8. DOCKER BUILD + TRIVY + SBOM
   # ==========================================
   images:
     name: Image + Trivy (${{ matrix.name }})
@@ -336,6 +358,7 @@ jobs:
       - sast
       - dependencies
       - integration-aws
+      - iac-scan
 
     runs-on: ubuntu-latest
 
