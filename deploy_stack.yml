@@ -1,0 +1,19 @@
+---
+- import_playbook: install_docker.yml
+- name: Déployer la stack applicative
+  hosts: all
+  become: true
+  tasks:
+    - name: Copier le projet
+      ansible.posix.synchronize:
+        src: "{{ playbook_dir }}/"
+        dest: /opt/portfolio/
+        rsync_opts: ["--exclude=.git", "--exclude=node_modules", "--exclude=.terraform", "--exclude=*.tfstate*"]
+    - name: Générer le .env
+      template: { src: templates/env.j2, dest: /opt/portfolio/.env, mode: '0600' }
+    - name: Lancer la stack
+      command: docker compose up -d --build
+      args: { chdir: /opt/portfolio }
+    - name: (Option) Installer K3s
+      shell: curl -sfL https://get.k3s.io | sh -
+      args: { creates: /usr/local/bin/k3s }
