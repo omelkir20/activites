@@ -1,7 +1,22 @@
+data "aws_caller_identity" "current" {}
+
 resource "aws_kms_key" "this" {
   description             = "KMS key for S3 bucket ${var.name}"
   enable_key_rotation     = true
   deletion_window_in_days = 7
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "EnableIAMUserPermissions"
+      Effect = "Allow"
+      Principal = {
+        AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+      }
+      Action   = "kms:*"
+      Resource = "*"
+    }]
+  })
+
 }
 
 resource "aws_s3_bucket" "this" {

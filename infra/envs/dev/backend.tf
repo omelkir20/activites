@@ -16,6 +16,5 @@ terraform {
     skip_requesting_account_id  = true
     skip_region_validation      = true
 
-    dynamodb_table = "tf-locks"
   }
 }
