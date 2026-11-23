@@ -3,6 +3,7 @@ import request from 'supertest';
 import {
   SQSClient,
   ReceiveMessageCommand,
+  ListQueuesCommand,
 } from '@aws-sdk/client-sqs';
 
 import { createApp } from '../../src/app.js';
@@ -16,6 +17,11 @@ describe('API -> SQS (Floci)', () => {
       CONTACT_RATE_LIMIT_MAX: '1000',
       RATE_LIMIT_MAX: '1000',
     };
+
+    // Afficher la configuration AWS utilisée par le test
+    console.log('AWS_ENDPOINT_URL:', env.AWS_ENDPOINT_URL);
+    console.log('SQS_QUEUE_URL:', env.SQS_QUEUE_URL);
+    console.log('S3_BUCKET:', env.S3_BUCKET);
 
     let publishError;
 
@@ -62,6 +68,10 @@ describe('API -> SQS (Floci)', () => {
         secretAccessKey: env.AWS_SECRET_ACCESS_KEY || 'test',
       },
     });
+
+    // Afficher les files SQS disponibles dans Floci
+    const queues = await sqs.send(new ListQueuesCommand({}));
+    console.log('FILES SQS DISPONIBLES:', queues.QueueUrls);
 
     let found = false;
 
