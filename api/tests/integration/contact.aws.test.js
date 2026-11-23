@@ -18,21 +18,32 @@ describe('API -> SQS (Floci)', () => {
       RATE_LIMIT_MAX: '1000',
     };
 
-    // Afficher la configuration AWS utilisée par le test
+    console.log('========== CONFIGURATION AWS ==========');
     console.log('AWS_ENDPOINT_URL:', env.AWS_ENDPOINT_URL);
     console.log('SQS_QUEUE_URL:', env.SQS_QUEUE_URL);
     console.log('S3_BUCKET:', env.S3_BUCKET);
 
     let publishError;
+    let publishCalled = false;
 
     const realNotifier = createAwsNotifier(env);
 
+    expect(realNotifier, 'Le notifier AWS n’est pas configuré').not.toBeNull();
+
+    // Intercepter l'appel au notifier pour vérifier son exécution
     const notifier = {
       async publish(contact) {
+        publishCalled = true;
+
+        console.log('========== NOTIFIER ==========');
+        console.log('NOTIFIER APPELÉ AVEC:', contact.email);
+
         try {
           await realNotifier.publish(contact);
+          console.log('PUBLICATION AWS TERMINÉE');
         } catch (error) {
           publishError = error;
+          console.error('ERREUR PUBLICATION AWS:', error);
           throw error;
         }
       },
@@ -44,6 +55,7 @@ describe('API -> SQS (Floci)', () => {
       env,
     });
 
+    // Envoyer un contact à l'API
     const res = await request(app)
       .post('/api/contact')
       .send({
@@ -52,14 +64,24 @@ describe('API -> SQS (Floci)', () => {
         message: 'Message de test SQS Floci',
       });
 
+    console.log('STATUT HTTP:', res.status);
+    console.log('RÉPONSE API:', res.body);
+
     expect(res.status).toBe(201);
 
-    // Vérifier directement la publication AWS
+    // Vérifier que la route a appelé le notifier
+    expect(
+      publishCalled,
+      'Le notifier n’a pas été appelé par la route API'
+    ).toBe(true);
+
+    // Vérifier qu'aucune erreur AWS n'a été interceptée
     expect(
       publishError,
       publishError?.stack || 'La publication SQS a échoué'
     ).toBeUndefined();
 
+    // Créer le client SQS
     const sqs = new SQSClient({
       region: env.AWS_REGION || 'us-east-1',
       endpoint: env.AWS_ENDPOINT_URL,
@@ -69,38 +91,57 @@ describe('API -> SQS (Floci)', () => {
       },
     });
 
-    // Afficher les files SQS disponibles dans Floci
-    const queues = await sqs.send(new ListQueuesCommand({}));
-    console.log('FILES SQS DISPONIBLES:', queues.QueueUrls);
-
-    let found = false;
-
-    // Attendre la disponibilité du message dans Floci
-    for (let i = 0; i < 10; i++) {
-      const out = await sqs.send(
-        new ReceiveMessageCommand({
-          QueueUrl: env.SQS_QUEUE_URL,
-          WaitTimeSeconds: 2,
-          MaxNumberOfMessages: 10,
-        })
+    try {
+      // Vérifier les files disponibles
+      const queues = await sqs.send(
+        new ListQueuesCommand({})
       );
 
-      if (
-        out.Messages?.some(message =>
-          message.Body?.includes('aws@example.com')
-        )
-      ) {
-        found = true;
-        break;
+      console.log('========== FILES SQS ==========');
+      console.log('FILES SQS DISPONIBLES:', queues.QueueUrls);
+
+      expect(
+        queues.QueueUrls?.includes(env.SQS_QUEUE_URL),
+        'La file SQS attendue est introuvable'
+      ).toBe(true);
+
+      // Rechercher le message envoyé
+      let found = false;
+
+      for (let i = 0; i < 10; i++) {
+        console.log(`Tentative de réception SQS ${i + 1}/10`);
+
+        const out = await sqs.send(
+          new ReceiveMessageCommand({
+            QueueUrl: env.SQS_QUEUE_URL,
+            WaitTimeSeconds: 2,
+            MaxNumberOfMessages: 10,
+          })
+        );
+
+        console.log(
+          'MESSAGES REÇUS:',
+          out.Messages?.map(message => message.Body) || []
+        );
+
+        if (
+          out.Messages?.some(message =>
+            message.Body?.includes('aws@example.com')
+          )
+        ) {
+          found = true;
+          console.log('MESSAGE aws@example.com TROUVÉ DANS SQS');
+          break;
+        }
       }
+
+      expect(
+        found,
+        'Aucun message contenant aws@example.com trouvé dans SQS'
+      ).toBe(true);
+    } finally {
+      await sqs.destroy();
     }
-
-    expect(
-      found,
-      'Aucun message contenant aws@example.com trouvé dans SQS'
-    ).toBe(true);
-
-    await sqs.destroy();
   });
 });
 
