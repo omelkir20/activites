@@ -1,10 +1,12 @@
 name: CI
+
 on:
   push:
     branches: ["**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
 
@@ -16,20 +18,34 @@ env:
   NODE_VERSION: "22"
 
 jobs:
+
+  # ==========================================
+  # 1. SCAN DES SECRETS - GITLEAKS
+  # ==========================================
   secrets:
     name: Secrets (Gitleaks)
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           persist-credentials: false
+
       - name: Gitleaks (historique git + fichiers)
         run: |
           mkdir -p reports
-          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" zricethezav/gitleaks:latest \
-            detect --source /repo --config /repo/.gitleaks.toml --redact --verbose \
-            --report-format json --report-path /repo/reports/gitleaks.json --exit-code 1
+
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest \
+            detect --source /repo \
+            --config /repo/.gitleaks.toml \
+            --redact --verbose \
+            --report-format json \
+            --report-path /repo/reports/gitleaks.json \
+            --exit-code 1
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -37,73 +53,126 @@ jobs:
           path: reports/
           if-no-files-found: ignore
 
+  # ==========================================
+  # 2. TESTS FRONTEND
+  # ==========================================
   test-frontend:
     name: Tests frontend
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: portfolio-next
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: portfolio-next/package-lock.json
+
       - run: npm ci --no-audit --no-fund
+
       - run: npm test
 
+  # ==========================================
+  # 3. TESTS API
+  # ==========================================
   test-api:
     name: Tests API
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: api
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: api/package-lock.json
+
       - run: npm ci --no-audit --no-fund
+
       - run: npx prisma generate
+
       - run: npm test
 
+  # ==========================================
+  # 4. SAST - SEMGREP
+  # ==========================================
   sast:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       security-events: write
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Semgrep - rapport complet (non bloquant, sert a la comparaison avec CodeQL)
+
+      - name: Semgrep - rapport complet (non bloquant)
         run: |
           mkdir -p reports
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src semgrep/semgrep:latest \
-            semgrep scan --config p/javascript --config p/nodejs --config p/typescript --config p/owasp-top-ten \
-            --metrics=off --sarif-output=reports/semgrep.sarif \
-            --exclude node_modules --exclude .next --exclude tests \
+
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD:/src" \
+            -w /src \
+            semgrep/semgrep:latest \
+            semgrep scan \
+            --config p/javascript \
+            --config p/nodejs \
+            --config p/typescript \
+            --config p/owasp-top-ten \
+            --metrics=off \
+            --sarif-output=reports/semgrep.sarif \
+            --exclude node_modules \
+            --exclude .next \
+            --exclude tests \
             portfolio-next/app api/src api/server.js
-      - name: Semgrep - controle bloquant (severite ERROR)
+
+      - name: Semgrep - contrôle bloquant (sévérité ERROR)
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src semgrep/semgrep:latest \
-            semgrep scan --config p/javascript --config p/nodejs --config p/typescript --config p/owasp-top-ten \
-            --severity ERROR --error --metrics=off --json-output=reports/semgrep.json \
-            --exclude node_modules --exclude .next --exclude tests \
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$PWD:/src" \
+            -w /src \
+            semgrep/semgrep:latest \
+            semgrep scan \
+            --config p/javascript \
+            --config p/nodejs \
+            --config p/typescript \
+            --config p/owasp-top-ten \
+            --severity ERROR \
+            --error \
+            --metrics=off \
+            --json-output=reports/semgrep.json \
+            --exclude node_modules \
+            --exclude .next \
+            --exclude tests \
             portfolio-next/app api/src api/server.js
+
       - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
         if: always() && hashFiles('reports/semgrep.sarif') != ''
         with:
           sarif_file: reports/semgrep.sarif
           category: semgrep
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -111,38 +180,169 @@ jobs:
           path: reports/
           if-no-files-found: ignore
 
+  # ==========================================
+  # 5. DEPENDANCES - NPM AUDIT
+  # ==========================================
   dependencies:
-    name: Dependances
+    name: Dépendances
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: npm audit (echec si CRITICAL)
+
+      - name: npm audit (échec si CRITICAL)
         run: |
           rc=0
+
           for d in api portfolio-next; do
             echo "=== npm audit : $d"
+
             (cd "$d" && npm audit --audit-level=high || true)
+
             (cd "$d" && npm audit --audit-level=critical) || rc=1
           done
+
           exit $rc
+
       - name: Dependency Review (PR uniquement)
         if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
         with:
           fail-on-severity: high
 
+  # ==========================================
+  # 6. INTEGRATION TESTS - POSTGRESQL + FLOCI
+  # ==========================================
+  integration-aws:
+    name: Intégration (PostgreSQL + Floci)
+    runs-on: ubuntu-latest
+    needs: [test-api]
+
+    services:
+      floci:
+        image: floci/floci:latest
+        ports:
+          - 4566:4566
+
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://portfolio:ci_password@localhost:5432/portfolio?schema=public
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      S3_BUCKET: portfolio-contacts
+
+    defaults:
+      run:
+        working-directory: api
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Installer AWS CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y awscli
+
+      - name: Installer les dépendances API
+        run: npm ci --no-audit --no-fund
+
+      - name: Attendre PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U portfolio -d portfolio; then
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "PostgreSQL indisponible"
+          exit 1
+
+      - name: Générer Prisma et appliquer les migrations
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+
+      - name: Attendre Floci et créer les ressources AWS
+        run: |
+          set -e
+
+          for i in $(seq 1 30); do
+            if aws --endpoint-url "$AWS_ENDPOINT_URL" s3api list-buckets >/dev/null 2>&1; then
+              break
+            fi
+
+            sleep 2
+          done
+
+          aws --endpoint-url "$AWS_ENDPOINT_URL" s3api list-buckets >/dev/null
+
+          aws --endpoint-url "$AWS_ENDPOINT_URL" s3 mb "s3://$S3_BUCKET"
+
+          QUEUE_URL=$(aws --endpoint-url "$AWS_ENDPOINT_URL" sqs create-queue \
+            --queue-name contact-notifications \
+            --query QueueUrl \
+            --output text)
+
+          echo "SQS_QUEUE_URL=$QUEUE_URL" >> "$GITHUB_ENV"
+
+          echo "Bucket S3 : $S3_BUCKET"
+          echo "Queue SQS : $QUEUE_URL"
+
+      - name: Tests d'intégration
+        run: npm run test:integration
+
+  # ==========================================
+  # 7. DOCKER BUILD + TRIVY + SBOM
+  # ==========================================
   images:
     name: Image + Trivy (${{ matrix.name }})
-    needs: [secrets, test-frontend, test-api, sast, dependencies]
+
+    needs:
+      - secrets
+      - test-frontend
+      - test-api
+      - sast
+      - dependencies
+      - integration-aws
+
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       security-events: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -150,14 +350,18 @@ jobs:
           - name: api
             context: ./api
             image: devsecops-api
+
           - name: frontend
             context: ./portfolio-next
             image: devsecops-portfolio
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
       - name: Build ${{ matrix.image }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
@@ -167,25 +371,40 @@ jobs:
           tags: ${{ matrix.image }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
       - name: Trivy - rapport SARIF (HIGH + CRITICAL, non bloquant)
         run: |
           mkdir -p reports "$HOME/.cache/trivy"
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$HOME/.cache/trivy:/root/.cache/" -v "$PWD/reports:/reports" \
-            aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 \
-            --format sarif --output /reports/trivy-${{ matrix.name }}.sarif \
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/" \
+            -v "$PWD/reports:/reports" \
+            aquasec/trivy:latest image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 0 \
+            --format sarif \
+            --output /reports/trivy-${{ matrix.name }}.sarif \
             ${{ matrix.image }}:${{ github.sha }}
+
       - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
         if: always() && hashFiles(format('reports/trivy-{0}.sarif', matrix.name)) != ''
         with:
           sarif_file: reports/trivy-${{ matrix.name }}.sarif
           category: trivy-${{ matrix.name }}
-      - name: Trivy - controle bloquant (echec si CRITICAL)
+
+      - name: Trivy - contrôle bloquant (échec si CRITICAL)
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$HOME/.cache/trivy:/root/.cache/" \
-            aquasec/trivy:latest image --severity CRITICAL --ignore-unfixed --exit-code 1 \
+            aquasec/trivy:latest image \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
             ${{ matrix.image }}:${{ github.sha }}
+
       - name: SBOM (Syft)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:

@@ -9,3 +9,9 @@ reports/
 .env.*
 !.env.example
 demo-secret.env
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+data/

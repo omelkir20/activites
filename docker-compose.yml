@@ -1,17 +1,21 @@
+
 name: devsecops-portfolio
 
 services:
+  # =========================
+  # PostgreSQL
+  # =========================
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-portfolio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env (cp .env.example .env)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}
       POSTGRES_DB: ${POSTGRES_DB:-portfolio}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"   # accessible uniquement depuis la machine hôte (tests / psql)
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -20,6 +24,48 @@ services:
     networks:
       - devsecops-net
 
+  # =========================
+  # Floci - AWS Local Emulator
+  # =========================
+  floci:
+    image: floci/floci:latest
+    restart: unless-stopped
+    environment:
+      FLOCI_HOSTNAME: floci
+    ports:
+      - "4566:4566"
+    volumes:
+      - floci-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - devsecops-net
+
+  # =========================
+  # Initialisation S3 et SQS
+  # =========================
+  floci-init:
+    image: amazon/aws-cli:latest
+    restart: "no"
+    depends_on:
+      - floci
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until aws --endpoint-url http://floci:4566 s3 ls; do
+          sleep 1
+        done
+        aws --endpoint-url http://floci:4566 s3 mb s3://portfolio-contacts || true
+        aws --endpoint-url http://floci:4566 sqs create-queue --queue-name contact-notifications
+    networks:
+      - devsecops-net
+
+  # =========================
+  # API Express + Prisma
+  # =========================
   api:
     image: devsecops-api:${IMAGE_TAG:-latest}
     build: ./api
@@ -31,18 +77,38 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-portfolio}?schema=public
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       TRUST_PROXY: 1
+
+      # AWS / Floci
+      AWS_ENDPOINT_URL: http://floci:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_QUEUE_URL: http://floci:4566/000000000000/contact-notifications
+      S3_BUCKET: portfolio-contacts
+
     depends_on:
       db:
         condition: service_healthy
+      floci-init:
+        condition: service_completed_successfully
+
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+
     networks:
       - devsecops-net
 
+  # =========================
+  # Frontend Next.js
+  # =========================
   frontend:
     image: devsecops-portfolio:${IMAGE_TAG:-latest}
     build: ./portfolio-next
@@ -55,9 +121,17 @@ services:
     networks:
       - devsecops-net
 
+# =========================
+# Volumes
+# =========================
 volumes:
   pgdata:
+  floci-data:
 
+# =========================
+# Networks
+# =========================
 networks:
   devsecops-net:
     driver: bridge
+
