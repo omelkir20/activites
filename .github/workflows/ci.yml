@@ -322,7 +322,6 @@ jobs:
 
       - name: Tests d'intégration
         run: npm run test:integration
-
   # ==========================================
   # 7. IaC SCAN - CHECKOV + TRIVY
   # ==========================================
@@ -337,14 +336,11 @@ jobs:
 
       - name: Checkov
         run: |
-          docker run --rm -v "$PWD:/src" bridgecrew/checkov:latest \\
-            -d /src/infra --framework terraform --compact --quiet
+          docker run --rm -v "$PWD:/src" bridgecrew/checkov:latest -d /src/infra --framework terraform --compact --quiet
 
       - name: Trivy IaC
         run: |
-          docker run --rm -v "$PWD:/src" aquasec/trivy:latest \\
-            config --severity HIGH,CRITICAL --exit-code 1 /src/infra
-
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest config --severity HIGH,CRITICAL --exit-code 1 /src/infra
   # ==========================================
   # 8. DOCKER BUILD + TRIVY + SBOM
   # ==========================================
