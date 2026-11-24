@@ -15,3 +15,13 @@ demo-secret.env
 crash.log
 *.tfplan
 data/
+k8s/secrets/
+**/.terraform/
+**/.terragrunt-cache/
+*.zip
+*.tfstate*
+.vagrant/
+
+cilium-linux-amd64.tar.gz
+kubeseal
+kubeseal-*.tar.gz

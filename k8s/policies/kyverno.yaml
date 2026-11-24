@@ -1,0 +1,84 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: {name: disallow-latest-tag}
+spec:
+  background: false
+  rules:
+    - name: no-latest
+      match:
+        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
+      validate:
+        failureAction: Enforce
+        message: "Le tag 'latest' (ou l'absence de tag) est interdit."
+        pattern:
+          spec:
+            containers:
+              - image: "*:*"
+            =(initContainers):
+              - image: "*:*"
+    - name: no-latest-explicit
+      match:
+        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
+      validate:
+        failureAction: Enforce
+        message: "Le tag 'latest' est interdit."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: {name: disallow-privileged}
+spec:
+  background: false
+  rules:
+    - name: no-privileged
+      match:
+        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
+      validate:
+        failureAction: Enforce
+        message: "Les conteneurs privilégiés sont interdits."
+        pattern:
+          spec:
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: {name: require-run-as-nonroot}
+spec:
+  background: false
+  rules:
+    - name: run-as-non-root
+      match:
+        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
+      validate:
+        failureAction: Enforce
+        message: "runAsNonRoot: true est obligatoire."
+        anyPattern:
+          - spec:
+              securityContext: {runAsNonRoot: true}
+          - spec:
+              containers:
+                - securityContext: {runAsNonRoot: true}
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: {name: require-requests-limits}
+spec:
+  background: false
+  rules:
+    - name: requests-limits
+      match:
+        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
+      validate:
+        failureAction: Enforce
+        message: "requests (cpu, memory) et limits (memory) sont obligatoires."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests: {cpu: "?*", memory: "?*"}
+                  limits: {memory: "?*"}

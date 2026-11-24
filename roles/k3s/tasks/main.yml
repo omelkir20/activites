@@ -1,0 +1,36 @@
+---
+- name: Prérequis
+  ansible.builtin.apt:
+    name: [curl, ca-certificates]
+    state: present
+    update_cache: true
+
+- name: Installer K3s
+  ansible.builtin.shell: >
+    curl -sfL https://get.k3s.io |
+    INSTALL_K3S_VERSION="{{ k3s_version }}" sh -s - --write-kubeconfig-mode 644
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Attendre que le nœud soit Ready
+  ansible.builtin.command: k3s kubectl get nodes --no-headers
+  register: nodes
+  until: "' Ready' in nodes.stdout"
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Dossier .kube de l'utilisateur
+  ansible.builtin.file:
+    path: "/home/{{ k3s_user }}/.kube"
+    state: directory
+    owner: "{{ k3s_user }}"
+    mode: "0700"
+
+- name: Copier le kubeconfig
+  ansible.builtin.copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "/home/{{ k3s_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ k3s_user }}"
+    mode: "0600"

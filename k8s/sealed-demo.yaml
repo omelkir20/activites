@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: demo-sealed
+  namespace: devsecops-portfolio
+spec:
+  encryptedData:
+    TOKEN: AgB7d8hHPGlkrcvgvjlytrGZDEWUF0yHgyjEc0luKj29zSn+bar3iVBwgD/970u0VQggF8xNCJ0oGnFhP3xjxzCIc8Lk36CV/NaCmkr6KWrEI8ADoXCoQk364kbCE0uQIoal9jRoK+v06EMl83gaRzSXOSixVAVwXXw0drDxcSjaNEDtstKWjM/yvzqILxkeEaEXE4tR0Y/HSGR9BZIRBD0s47VOS/MKnqSw6MouTHcRKcrEKh8DyP5Bx+9mb6Kuv93lvJo1Ca04gfM6Pp1ruSu9evvyiN8Mvbhb7MX9o03r9LAoILzNhKka8/Oe+KMXuT2xSvPQPcAFJcVLekLXDO7Yd0PenxC3nKyiAUPOMquP6lGoo0SACXKcaUOiCOj3fjEy9gKZdzluG9NjEniBkG6Q3Hu2T5Hc6QEWaRkS4aAcocrVWDq9oUewcWwnyjPdh0gtPrzvnWCtrFi2rPlb5ieh1LA1XG1fkIJJzkBHIu+4e5b+kK7G4fsKn++6RoTbpcQuDtnAN69OifUsBIvl/WDPig514A+HN5x2A7Uwa4USe4O8tXNQ3alcSt5iF0XB+yJrXnHXEEsdeXa/rgWumln9zhIIPcPMPEiOal60K4/3TcvhrjC5yl4M2IY1zIqOWPUIk5hzI+bcXy72AX8ZenOSzE64vMs7mk7hZrjCqixkQ0MyRAmOSoXdZi0KRkocZ6BYRg/eqI4=
+  template:
+    metadata:
+      name: demo-sealed
+      namespace: devsecops-portfolio

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: portfolio-sa, namespace: devsecops-portfolio}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: portfolio-reader, namespace: devsecops-portfolio}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [api-config, frontend-config]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [api-secret]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: portfolio-reader-binding, namespace: devsecops-portfolio}
+subjects:
+  - {kind: ServiceAccount, name: portfolio-sa, namespace: devsecops-portfolio}
+roleRef: {kind: Role, name: portfolio-reader, apiGroup: rbac.authorization.k8s.io}

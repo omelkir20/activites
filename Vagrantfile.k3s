@@ -1,0 +1,20 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = ENV.fetch("VAGRANT_BOX", "bento/ubuntu-24.04")
+  config.vm.hostname = "k3s-vm"
+  config.vm.boot_timeout = 600
+
+  config.vm.provider "vmware_desktop" do |v|    
+    v.vmx["memsize"] = "4096"
+    v.vmx["numvcpus"] = "2"
+  end
+  config.vm.provider "libvirt" do |v|
+    v.memory = 4096
+    v.cpus = 2
+  end
+
+  config.vm.provision "ansible" do |a|
+    a.playbook = "deploy_k3s.yml"
+    a.extra_vars = { docker_apt_codename: "noble" }
+    a.compatibility_mode = "2.0"
+  end
+end

@@ -1,0 +1,17 @@
+---
+- name: Base SSH
+  hosts: all
+  become: true
+  tasks:
+    - name: OpenSSH serveur
+      ansible.builtin.apt: {name: openssh-server, state: present, update_cache: true}
+    - name: SSH actif
+      ansible.builtin.service: {name: ssh, state: started, enabled: true}
+
+- import_playbook: install_docker.yml
+
+- name: Installer K3s
+  hosts: all
+  become: true
+  roles:
+    - k3s
