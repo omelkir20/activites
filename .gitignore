@@ -25,3 +25,9 @@ k8s/secrets/
 cilium-linux-amd64.tar.gz
 kubeseal
 kubeseal-*.tar.gz
+cosign.key
+*.key
+reports/
+gitops/
+harbor/common/
+cosign-linux-amd64

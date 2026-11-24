@@ -1,0 +1,30 @@
+imagePullSecrets: []
+frontend:
+  #image: {repository: devsecops-portfolio, tag: "1.0.0", pullPolicy: IfNotPresent}
+  image: {repository: "192.168.148.140:8085/portfolio/frontend", tag: "1.0.0", pullPolicy: IfNotPresent}
+  replicas: 1
+  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {cpu: 300m, memory: 256Mi}}
+api:
+  #image: {repository: devsecops-api, tag: "1.0.0", pullPolicy: IfNotPresent}
+  image: {repository: "192.168.148.140:8085/portfolio/api", tag: "1.0.0", pullPolicy: IfNotPresent}
+  replicas: 1
+  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 1Gi
+  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+ingress:
+  enabled: true
+  className: traefik
+  host: portfolio-helm.local
+config:
+  api:
+    PORT: "4000"
+    CORS_ORIGIN: "http://portfolio-helm.local"
+    TRUST_PROXY: "1"
+    RATE_LIMIT_MAX: "100"
+    CONTACT_RATE_LIMIT_MAX: "5"
+  frontend:
+    NODE_ENV: production
+    API_INTERNAL_URL: "http://api:4000"

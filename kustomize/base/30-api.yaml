@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: devsecops-portfolio
+  labels: {app: api}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: api}
+  template:
+    metadata:
+      labels: {app: api}
+    spec:
+      serviceAccountName: portfolio-sa          # tâche 161
+      automountServiceAccountToken: false
+      securityContext:                          # tâche 165
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api
+          image: devsecops-api:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4000
+          envFrom:                              # tâche 149
+            - configMapRef: {name: api-config}
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: db-secret, key: POSTGRES_PASSWORD}}
+            - name: API_KEY
+              valueFrom: {secretKeyRef: {name: api-secret, key: API_KEY}}
+            - name: DATABASE_URL
+              value: postgresql://portfolio:$(POSTGRES_PASSWORD)@postgres:5432/portfolio?schema=public
+          readinessProbe:                       # tâche 157
+            httpGet: {path: /api/health, port: 4000}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:                        # tâche 158
+            httpGet: {path: /api/health, port: 4000}
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:                            # tâche 159
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:                      # tâche 165
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}

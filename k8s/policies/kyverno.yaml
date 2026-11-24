@@ -1,84 +1,127 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata: {name: disallow-latest-tag}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: disallow-latest-tag
 spec:
-  background: false
-  rules:
-    - name: no-latest
-      match:
-        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
-      validate:
-        failureAction: Enforce
-        message: "Le tag 'latest' (ou l'absence de tag) est interdit."
-        pattern:
-          spec:
-            containers:
-              - image: "*:*"
-            =(initContainers):
-              - image: "*:*"
-    - name: no-latest-explicit
-      match:
-        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
-      validate:
-        failureAction: Enforce
-        message: "Le tag 'latest' est interdit."
-        pattern:
-          spec:
-            containers:
-              - image: "!*:latest"
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        !(object.metadata.namespace == 'devsecops-portfolio' ||
+          object.metadata.namespace.startsWith('portfolio-')) ||
+        (
+          (object.spec.containers +
+           object.spec.?initContainers.orValue([]) +
+           object.spec.?ephemeralContainers.orValue([]))
+          .all(c,
+            image(c.image).containsDigest() ||
+            (image(c.image).tag() != '' &&
+             image(c.image).tag() != 'latest')
+          )
+        )
+      message: "Le tag latest ou l'absence de tag est interdit. Utilisez un tag explicite ou un digest."
+
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata: {name: disallow-privileged}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: disallow-privileged
 spec:
-  background: false
-  rules:
-    - name: no-privileged
-      match:
-        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
-      validate:
-        failureAction: Enforce
-        message: "Les conteneurs privilégiés sont interdits."
-        pattern:
-          spec:
-            containers:
-              - =(securityContext):
-                  =(privileged): "false"
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        !(object.metadata.namespace == 'devsecops-portfolio' ||
+          object.metadata.namespace.startsWith('portfolio-')) ||
+        (
+          (object.spec.containers +
+           object.spec.?initContainers.orValue([]) +
+           object.spec.?ephemeralContainers.orValue([]))
+          .all(c,
+            !has(c.securityContext) ||
+            !has(c.securityContext.privileged) ||
+            c.securityContext.privileged == false
+          )
+        )
+      message: "Les conteneurs privilégiés sont interdits."
+
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata: {name: require-run-as-nonroot}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-run-as-nonroot
 spec:
-  background: false
-  rules:
-    - name: run-as-non-root
-      match:
-        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
-      validate:
-        failureAction: Enforce
-        message: "runAsNonRoot: true est obligatoire."
-        anyPattern:
-          - spec:
-              securityContext: {runAsNonRoot: true}
-          - spec:
-              containers:
-                - securityContext: {runAsNonRoot: true}
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        !(object.metadata.namespace == 'devsecops-portfolio' ||
+          object.metadata.namespace.startsWith('portfolio-')) ||
+        (
+          (
+            has(object.spec.securityContext) &&
+            has(object.spec.securityContext.runAsNonRoot) &&
+            object.spec.securityContext.runAsNonRoot == true
+          ) ||
+          (
+            (object.spec.containers +
+             object.spec.?initContainers.orValue([]) +
+             object.spec.?ephemeralContainers.orValue([]))
+            .all(c,
+              has(c.securityContext) &&
+              has(c.securityContext.runAsNonRoot) &&
+              c.securityContext.runAsNonRoot == true
+            )
+          )
+        )
+      message: "runAsNonRoot: true est obligatoire au niveau du Pod ou de chaque conteneur."
+
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata: {name: require-requests-limits}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-requests-limits
 spec:
-  background: false
-  rules:
-    - name: requests-limits
-      match:
-        any: [{resources: {kinds: [Pod], namespaces: [devsecops-portfolio]}}]
-      validate:
-        failureAction: Enforce
-        message: "requests (cpu, memory) et limits (memory) sont obligatoires."
-        pattern:
-          spec:
-            containers:
-              - resources:
-                  requests: {cpu: "?*", memory: "?*"}
-                  limits: {memory: "?*"}
+  validationActions:
+    - Deny
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        !(object.metadata.namespace == 'devsecops-portfolio' ||
+          object.metadata.namespace.startsWith('portfolio-')) ||
+        (
+          (object.spec.containers +
+           object.spec.?initContainers.orValue([]))
+          .all(c,
+            has(c.resources) &&
+            has(c.resources.requests) &&
+            has(c.resources.requests.cpu) &&
+            has(c.resources.requests.memory) &&
+            has(c.resources.limits) &&
+            has(c.resources.limits.memory)
+          )
+        )
+      message: "requests CPU et mémoire, ainsi que limits mémoire, sont obligatoires."

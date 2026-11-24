@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: frontend, labels: {app: frontend}}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector: {matchLabels: {app: frontend}}
+  template:
+    metadata: {labels: {app: frontend}}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext: {{- include "portfolio.podSecurity" . | nindent 8 }}
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports: [{containerPort: 3000}]
+          envFrom: [{configMapRef: {name: frontend-config}}]
+          readinessProbe: {httpGet: {path: /, port: 3000}, initialDelaySeconds: 5}
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
+          securityContext: {{- include "portfolio.ctrSecurity" . | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: frontend, labels: {app: frontend}}
+spec:
+  selector: {app: frontend}
+  ports: [{name: http, port: 3000, targetPort: 3000}]

@@ -1,0 +1,48 @@
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signatures
+spec:
+  validationActions:
+    - Deny
+
+  webhookConfiguration:
+    timeoutSeconds: 30
+
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+
+  matchImageReferences:
+    - glob: "192.168.148.140:8085/portfolio/*"
+
+  credentials:
+    allowInsecureRegistry: true
+    secrets:
+      - harbor-pull
+
+  validationConfigurations:
+    mutateDigest: true
+    verifyDigest: true
+    required: true
+
+  attestors:
+    - name: cosign
+      cosign:
+        key:
+          data: |
+            -----BEGIN PUBLIC KEY-----
+            MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE86sTafGvczhRAA4FbzSTtlOpFI2m
+            7OcoQ8ZYQVipfUuswjLIR8jXdPwuMCctMSOVZbaCdyYpG9LTWOEDuOHIJw==
+            -----END PUBLIC KEY-----
+
+  validations:
+    - expression: >-
+        images.containers.map(
+          image,
+          verifyImageSignatures(image, [attestors.cosign])
+        ).all(result, result > 0)
+      message: "Les images Harbor du projet portfolio doivent avoir une signature Cosign valide."
