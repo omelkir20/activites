@@ -4,9 +4,10 @@ title = "Gitleaks - DevSecOps Portfolio"
 useDefault = true
 
 [allowlist]
-description = "Fichiers d'exemple sans secret réel"
+description = "Fichiers d'exemple sans secret réel et SealedSecrets chiffrés"
 paths = [
   '''\.env\.example$''',
   '''package-lock\.json$''',
   '''docs/.*''',
+  '''k8s/sealed-demo\.yaml$''',
 ]
