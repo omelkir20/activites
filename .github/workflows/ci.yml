@@ -167,7 +167,7 @@ jobs:
             --exclude tests \
             portfolio-next/app api/src api/server.js
 
-      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         if: always() && hashFiles('reports/semgrep.sarif') != ''
         with:
           sarif_file: reports/semgrep.sarif
@@ -407,7 +407,7 @@ jobs:
             --output /reports/trivy-${{ matrix.name }}.sarif \
             ${{ matrix.image }}:${{ github.sha }}
 
-      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
+      - uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         if: always() && hashFiles(format('reports/trivy-{0}.sarif', matrix.name)) != ''
         with:
           sarif_file: reports/trivy-${{ matrix.name }}.sarif
